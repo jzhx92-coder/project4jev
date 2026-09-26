@@ -16,7 +16,7 @@ export function parseEvaluation(body: unknown): { state: string; question: Quest
   const question: Question = mode === 'choice' ? { type: 'choice', instructions, criteria: Object.fromEntries(labels.map((x, i) => [`option_${i}`, x])) } : { type: 'score', instructions, criteria: labels };
   return { state: b.state.trim(), question, labels };
 }
-export function publicFailure(error: unknown) {
+export function publicFailure(error: unknown, apiKeyConfigured = false) {
   const chain: {name?: string; statusCode?: number}[] = [];
   let current: unknown = error;
   for (let i = 0; i < 5 && current && typeof current === 'object'; i++) {
@@ -26,7 +26,9 @@ export function publicFailure(error: unknown) {
   }
   const status = chain.find(x => typeof x.statusCode === 'number')?.statusCode;
   const names = chain.map(x => x.name ?? '');
-  if (status === 401 || status === 403 || names.some(x => /Authentication|Forbidden|LoadAPIKey/.test(x))) return {code:'AUTH_REQUIRED',status:503,error:'AI Gateway 인증이 필요합니다. Vercel 환경변수에 AI_GATEWAY_API_KEY를 등록한 뒤 재배포해 주세요.'};
+  if (status === 401) return {code:'GATEWAY_401',status:503,error:apiKeyConfigured?'AI Gateway에서 인증을 거부했습니다(401). 서버에는 API 키가 설정되어 있으므로 키의 유효성·소속 팀 및 권한을 확인해 주세요.':'AI Gateway 인증 실패(401). 현재 실행 중인 서버에서 AI_GATEWAY_API_KEY가 확인되지 않습니다. Production 환경 설정과 최신 배포를 확인해 주세요.'};
+  if (status === 403) return {code:'GATEWAY_403',status:503,error:apiKeyConfigured?'AI Gateway가 요청을 거부했습니다(403). 서버에 API 키는 설정되어 있습니다. 키가 속한 팀의 Gateway 접근 권한 또는 계정 제한을 확인해 주세요.':'AI Gateway가 요청을 거부했습니다(403). Production 환경의 API 키 설정 또는 Gateway 접근 권한을 확인해 주세요.'};
+  if (names.some(x => /Authentication|Forbidden|LoadAPIKey/.test(x))) return {code:'GATEWAY_AUTH_ERROR',status:503,error:apiKeyConfigured?'AI Gateway 인증 처리 중 오류가 발생했습니다. 서버에는 API 키가 설정되어 있습니다.':'AI Gateway 인증 처리 중 오류가 발생했습니다. 현재 실행 중인 서버에서 API 키가 확인되지 않습니다.'};
   if (status === 402) return {code:'CREDITS_REQUIRED',status:503,error:'AI Gateway에서 사용 가능한 크레딧을 확인해 주세요.'};
   if (status === 429) return {code:'RATE_LIMITED',status:429,error:'요청이 많습니다. 잠시 후 다시 시도해 주세요.'};
   if (status === 408 || status === 504 || names.some(x => /Timeout|Abort/.test(x))) return {code:'TIMEOUT',status:504,error:'평가 응답이 늦어지고 있어요. 잠시 후 다시 시도해 주세요.'};
